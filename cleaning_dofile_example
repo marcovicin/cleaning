@@ -1,0 +1,301 @@
+
+* Project: Household survey with 2 respondents per HH (male, female). Each enumerator interviewed one respondent of same sex.
+* Purpose: Cleaning data
+
+	version 15
+	clear all
+	clear matrix
+	set more off
+	capture program drop _all
+	capture log close
+	set maxvar 10000
+	set more off, perm
+	set type double
+	set logtype text
+	set trace off
+
+	
+*** BASIC SETUP
+********************************************************************************
+	
+ 	*** Setup Task-specific variables ***
+ 	global project = "Survey name"
+ 	global date : display %tdYND date(c(current_date), "DMY")	
+
+
+	* You can find the local host with the following command
+	* di "`c(hostname)'"
+
+	local hostname "`c(hostname)'"
+	
+	di "`hostname'"
+	
+
+		if "`hostname'"=="INSERT HOSTNAME" { 	
+			global path   "G:\My Drive\Path\to\your\folder\"	
+		} 
+			
+		// add your path here
+
+*** Setup Paths 
+
+	global input ${path}1-input/
+	global aux ${path}0-aux/
+	global temp ${path}3-working/
+	global output ${path}4-output/
+
+	
+	
+
+*** 🧹🧹 Cleaning Subtasks 🧹🧹
+********************************************************************************
+
+** IMPORT RAW DATA
+
+	use "${path}Data_name", clear
+	
+/* Ineligible surveys  
+	 */	 
+	drop if consent!=1
+
+	
+/* Corrections from the data collection notes
+	*/
+
+				replace income = 10000 if  hhid == 11111 //Comment on specific replacement
+				replace income = 15000 if  hhid == 11112 
+
+				replace var1 = 1 if hhid == 11112
+	
+				forvalues n = 1(1)3 {
+				replace var_roaster_2_`n' = "" if hhid == 11113
+				}
+				
+
+		
+/*  Convert numeric strings vars to correct var type  */
+
+		noi di as result "Converting Numeric String Variables to True Numeric..."
+		local count = 0
+		local destr_list ""
+		foreach var of varlist _all {
+			if substr("`:type `var''" , 1, 3) == "str" {
+				cap destring `var', replace
+				if substr("`:type `var''" , 1, 3) != "str" {
+					local count = `count' + 1
+					local destr_list `destr_list' `var'
+				}
+			}
+		}
+		noi di as text "`count' variables destringed:"
+		foreach var in `destr_list' {
+			noi di as text "`var'"
+		} 
+	 
+	 
+
+// Drop numeric variables missing for all observations
+
+		ds, not(type string) 
+		foreach varname of varlist `r(varlist)' {
+		 quietly sum `varname'
+		 if `r(N)'==0 {
+		  drop `varname'
+		  disp "dropped `varname' for too many missing data"
+			}
+		}
+
+
+
+	
+/*  Clean multiple choice variables
+ */
+	
+	* replace items already available in the list BUT which were written in "other"
+		
+		* thresh_meth_oth
+		replace var3 = "1 2" if thresh_meth_oth == "Option1"
+		replace var3_2 = 1 if thresh_meth_oth == "Option1"
+		replace var3_0 = . if thresh_meth_oth == "Option1"
+		replace var3_oth = "" if thresh_meth_oth == "Option1 "
+
+
+	* Drop if all non-missing observations are 0 
+
+		local name ""
+		local count = 0
+		foreach var of varlist _all {
+			if substr("`:type `var''" , 1, 3) != "str" {
+			qui	sum `var'
+				
+				if `r(min)'==0 & `r(max)'==0 {
+				local name "`name' `var'"
+				local count = `count' + 1
+
+			} 
+		}	
+		}
+		display "`name'"
+		display `count' 
+	
+	tempfile main_data 
+	save `main_data'
+		
+		keep `name'
+
+		drop var5 var6 var7  // from the survey, these vars can correctly have all values as 0. So we don't want to drop them.
+
+		describe,varlist
+		local drop_these `r(varlist)'
+ 				
+	use `main_data',clear
+
+	drop `drop_these'
+	di `r(k)' //num of vars dropped
+	 
+	
+
+	
+	
+	
+/* Label categorical variables 
+	 */
+
+	* Label Variables		
+
+	ds, not (varlabel)
+			
+			scalar var_count = `:word count `r(varlist)''
+			scalar list
+
+					
+	* Label HH members
+		
+	forval k = 1/5 {
+	cap lab var var10_`k' 		"Label var10 for HH Member `k' "
+	}
+		
+	forval i = 1/5		{
+	forval k = 6/15		{
+	local o = `k'-5
+		cap	lab var mod`i'_participant_`k'		"HH Member `o' labelled"
+	}
+	}
+								
+	
+	* Label Values
+									  
+		la de l_sex 1 "Female" 0 "Male" 
+		la val gender l_sex	
+		la val gender_var l_sex	
+		
+		
+		
+	*dummies yesno
+		qui	ds, has(type numeric) 
+		qui	ds `r(varlist)', not(vallabel)
+		
+		foreach var of varlist `r(varlist)' {	
+			qui	sum `var'
+		if `r(min)'==0 & `r(max)'==1 {
+			local list1 "`list1' `var'"
+				}
+				}
+			de `list1', fullname
+			di "`list1'"
+			scalar var_count = `:word count `list1''
+			scalar list
+				
+		label define lyesno 0 "No" 1 "Yes"
+		foreach var of varlist  `list1' {
+			lab val `var' lyesno 
+						}		
+	
+		//all make sense with yes-no labels 
+				
+
+	
+
+/*  Pre- Anonymise the data -- Export PII Personal Identifiable Information and saved in safe location
+	 */
+	
+	local name_list_raw 	"${path}Survey excel"
+			
+		tempfile main_data 
+		save `main_data'
+								
+				import delimited "`name_list_raw'.csv", clear
+				keep ïhhid da_name
+				rename ïhhid hhid
+				rename name name_sample_list
+				
+				duplicates drop name_sample_list hhid, force 
+
+ 				tempfile for_merge
+				save `for_merge'
+	
+	
+
+/*  Merge in pweights from Sample Lists
+	*/
+	
+		sort category_name
+		
+		local import_pweights 	"${path}Baseline Sample Lists/"
+		
+		tempfile main_data
+		save `main_data'
+		
+		use "`import_pweights'new_weights.dta", clear
+
+		reshape wide pweight,i(categroy_code) j(var11)
+
+		tempfile formergepweight
+		save `formergepweight'
+		
+		use  `main_data'
+		
+			merge m:1 category_name using `formergepweight' 
+			drop _merge
+	
+		
+		tempfile main_data 
+		save `main_data'	
+				
+			use "${saa}Clean_Anon_AnalysisReady.dta", clear
+			keep hhid cat1cat2
+
+		tempfile for_merge
+		save `for_merge'
+		
+		
+		 
+		* restore primary data
+		use `main_data', clear
+
+					
+			merge m:m hhid using `for_merge' , keep(3) nogen
+
+
+		gen pweight = .
+
+		replace pweight = pweight_opt1   if cat1cat2 == 0
+		replace pweight = pweight_opt2 if cat1cat2 == 1
+	
+	save "${output}Dataset_clean_PII",replace			
+		
+		
+		
+/*  Delete PII and Save Anonimyzed dta 
+	*/	
+ 
+ 	drop  var_sensitive_info name gender phones comments time location
+	 
+	
+	save "${output}Dataset_Clean_Anon",replace	
+	export excel using "${output}/Dataset_Clean_Anon.xlsx", firstrow(variables) replace
+
+
+* 🧹🧹	END OF R3 CLEANING DOFILE 
+******************************************
+		
