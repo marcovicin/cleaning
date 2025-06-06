@@ -1,5 +1,5 @@
 
-* Project: Household survey with 2 respondents per HH (male, female). Each enumerator interviewed one respondent of same sex.
+* Project: Household survey with 2 respondents per household (one male, one female). Each enumerator interviewed one respondent of the same sex.
 * Purpose: Cleaning data
 
 	version 15
@@ -47,7 +47,7 @@
 	
 	
 
-*** 🧹🧹 Cleaning Subtasks 🧹🧹
+***  Cleaning Subtasks 
 ********************************************************************************
 
 ** IMPORT RAW DATA
@@ -296,6 +296,6 @@
 	export excel using "${output}/Dataset_Clean_Anon.xlsx", firstrow(variables) replace
 
 
-* 🧹🧹	END OF R3 CLEANING DOFILE 
+* 	END OF R3 CLEANING DOFILE 
 ******************************************
 		
